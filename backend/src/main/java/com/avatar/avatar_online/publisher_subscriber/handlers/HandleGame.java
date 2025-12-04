@@ -1,10 +1,13 @@
 package com.avatar.avatar_online.publisher_subscriber.handlers;
 
 import com.avatar.avatar_online.DTOs.CardDTO;
+import com.avatar.avatar_online.DTOs.HistoryResponseDTO;
+import com.avatar.avatar_online.Truffle_Comunication.TruffleApiUser;
 import com.avatar.avatar_online.game.Match;
 import com.avatar.avatar_online.game.GameState;
 import com.avatar.avatar_online.game.MatchManagementService;
 import com.avatar.avatar_online.models.Card;
+import com.avatar.avatar_online.models.User;
 import com.avatar.avatar_online.publisher_subscriber.handlers.DTO.GameStateDTO;
 import com.avatar.avatar_online.publisher_subscriber.handlers.DTO.MatchFoundResponseDTO;
 import com.avatar.avatar_online.publisher_subscriber.handlers.records.PlayerInGame;
@@ -17,6 +20,7 @@ import com.avatar.avatar_online.publisher_subscriber.service.Communication;
 import com.avatar.avatar_online.raft.service.RedirectService;
 import com.avatar.avatar_online.service.CardService;
 import com.avatar.avatar_online.service.DeckService;
+import com.avatar.avatar_online.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.collection.IQueue;
@@ -24,6 +28,7 @@ import com.hazelcast.collection.IQueue;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
@@ -42,10 +47,12 @@ public class HandleGame {
     private final ObjectMapper objectMapper;
 
     private final CardService cardService;
+    private final UserService userService;
+    private final TruffleApiUser truffleApiUser;
 
     @Autowired
     public HandleGame(MatchManagementService matchManagementService, Communication communication,
-                      @Qualifier("hazelcastInstance") HazelcastInstance hazelcast, RedirectService redirectService, ObjectMapper objectMapper, CardService cardService) {
+                      @Qualifier("hazelcastInstance") HazelcastInstance hazelcast, RedirectService redirectService, ObjectMapper objectMapper, CardService cardService, UserService userService, TruffleApiUser truffleApiUser) {
         this.matchManagementService = matchManagementService;
         this.hazelcast = hazelcast;
         this.communication = communication;
@@ -54,6 +61,26 @@ public class HandleGame {
         this.objectMapper = objectMapper;
 
         this.cardService = cardService;
+        this.userService = userService;
+        this.truffleApiUser = truffleApiUser;
+    }
+
+    public void handleGetHistoriyBlockchain(OperationRequestDTO operation, String userSession){
+
+        ResponseEntity<String> response = userService.getHistory();
+
+        if (response == null || response.getBody() == null) {
+            OperationResponseDTO responseDTO = new OperationResponseDTO();
+            responseDTO.setOperationStatus(OperationStatus.ERROR);
+            responseDTO.setMessage("Operação não reconhecida: " + operation.getOperationType());
+            communication.sendToUser(userSession, responseDTO);
+        }
+
+        OperationResponseDTO responseDTO = new OperationResponseDTO(
+                operation.getOperationType(), OperationStatus.OK, "Guga Guga Guga", response
+        );
+
+        communication.sendToUser(userSession, responseDTO);
     }
 
     public void handleJoinInQueue(OperationRequestDTO operation, String userSession) {
@@ -68,7 +95,15 @@ public class HandleGame {
             return;
         }
 
-        PlayerInGame player = new PlayerInGame(userID, userSession, currentNodeId);
+        Optional<User> userOptional = userService.findById(UUID.fromString(userID));
+        if(userOptional.isEmpty()){
+            System.out.println("Ta errado em playerInGame");
+            return;
+        }
+
+        User user = userOptional.get();
+
+        PlayerInGame player = new PlayerInGame(userID, userSession, currentNodeId, user.getNickname());
 
         if(waitingQueue.contains(player)){
             OperationResponseDTO response = new OperationResponseDTO(operation.getOperationType(),OperationStatus.WARNING, "Você já está na fila!", null);
@@ -158,6 +193,7 @@ public class HandleGame {
                 communication.sendToUser(match.getPlayer1().getUserSession(), response);
                 communication.sendToUser(match.getPlayer2().getUserSession(), response);
                 matchManagementService.unregisterMatch(match.getMatchId());
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), match.getPlayer1().getNickname());
                 return;
             }else if(match.getGameState().getPlayerWin().equals("DRAW")){
                 OperationResponseDTO response = new OperationResponseDTO(
@@ -169,6 +205,7 @@ public class HandleGame {
                 communication.sendToUser(match.getPlayer1().getUserSession(), response);
                 communication.sendToUser(match.getPlayer2().getUserSession(), response);
                 matchManagementService.unregisterMatch(match.getMatchId());
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), "DRAW");
                 return;
             }
             else if(match.getGameState().getPlayerWin().equals(match.getGameState().getPlayerTwo().getId())){
@@ -181,6 +218,7 @@ public class HandleGame {
                 communication.sendToUser(match.getPlayer1().getUserSession(), response);
                 communication.sendToUser(match.getPlayer2().getUserSession(), response);
                 matchManagementService.unregisterMatch(match.getMatchId());
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), match.getPlayer2().getNickname());
                 return;
             }
 
@@ -202,6 +240,8 @@ public class HandleGame {
                         OperationStatus.OK,
                         "Partida finalizada",
                         matchDTO);
+
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), match.getPlayer1().getNickname());
 
                 Map<String, Object> newPayload = new HashMap<>(operation.getPayload());
 
@@ -239,6 +279,8 @@ public class HandleGame {
                         OperationStatus.OK,
                         "Partida finalizada",
                         matchDTO);
+
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), "DRAW");
 
                 Map<String, Object> newPayload = new HashMap<>(operation.getPayload());
 
@@ -278,6 +320,8 @@ public class HandleGame {
                         OperationStatus.OK,
                         "Partida finalizada",
                         matchDTO);
+
+                truffleApiUser.registryMatch(match.getPlayer1().getNickname(), match.getPlayer2().getNickname(), match.getPlayer2().getNickname());
 
                 Map<String, Object> newPayload = new HashMap<>(operation.getPayload());
 

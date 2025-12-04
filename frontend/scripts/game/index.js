@@ -1,3 +1,176 @@
+const modalHistoryBlockchain = document.getElementById("modalHistoryBlockchain");
+const timelineContainer = document.getElementById("timelineContainer");
+
+function renderHistory(data) {
+  const timeline = data;
+  timelineContainer.innerHTML = "";
+
+  timeline.forEach(event => {
+    const card = document.createElement("div");
+
+    const borderColor =
+      event.type === "open_package" ? "border-blue-500" :
+        event.type === "mint_cards" ? "border-purple-500" :
+          event.type === "swap_cards" ? "border-green-500" :
+          event.type === "match_register" ? "border-orange-500" :
+          "border-gray-500";
+
+    card.className = `
+      bg-gray-800 text-gray-200 p-5 rounded-xl shadow-md border-l-4 ${borderColor}
+      hover:scale-[1.02] transition-transform duration-150
+      flex flex-col gap-2
+    `;
+
+    let html = `
+      <div class="flex justify-between items-center mb-1">
+        <span class="text-sm px-2 py-1 rounded bg-gray-700 uppercase tracking-wide text-gray-300">${event.type}</span>
+        <span class="text-xs text-gray-400">${new Date(event.timestamp * 1000).toLocaleString()}</span>
+      </div>
+
+      <p class="text-sm">
+        <span class="font-bold text-gray-300">Tx:</span> 
+        <span class="break-all text-gray-400">${event.transaction}</span>
+      </p>
+    `;
+
+    /* ------------------------------ OPEN PACKAGE ------------------------------ */
+    if (event.type === "open_package") {
+      const d = event.data;
+
+      html += `
+        <div class="mt-3 bg-gray-700/40 p-3 rounded-lg">
+          <p class="font-semibold text-blue-400 mb-2 flex items-center gap-1">📦 Pacote Aberto</p>
+
+          <p><strong class="text-gray-300">Player:</strong> 
+            <span class="text-gray-400 break-all">${d.address}</span>
+          </p>
+
+          <p><strong class="text-gray-300">Pack ID:</strong> 
+            <span class="text-gray-400">${d.packId}</span>
+          </p>
+
+          <p><strong class="text-gray-300">Cartas:</strong> 
+            <span class="text-gray-400">${d.cards.join(", ")}</span>
+          </p>
+        </div>
+      `;
+    }
+
+    /* ------------------------------ MINT CARDS ------------------------------ */
+    if (event.type === "mint_cards") {
+      const c = event.data.card;
+
+      html += `
+        <div class="mt-3 bg-gray-700/40 p-3 rounded-lg">
+          <p class="font-semibold text-purple-400 mb-2 flex items-center gap-1">✨ Carta Mintada</p>
+
+          <p><strong class="text-gray-300">ID:</strong> <span class="text-gray-400">${c.id}</span></p>
+          <p><strong class="text-gray-300">Nome:</strong> <span class="text-gray-400">${c.name}</span></p>
+          <p><strong class="text-gray-300">Elemento:</strong> <span class="text-gray-400">${c.element}</span></p>
+          <p><strong class="text-gray-300">Fase:</strong> <span class="text-gray-400">${c.phase}</span></p>
+          <p><strong class="text-gray-300">Raridade:</strong> <span class="text-gray-400">${c.rarity}</span></p>
+        </div>
+      `;
+    }
+
+    /* ------------------------------ SWAP CARDS ------------------------------ */
+    if (event.type === "swap_cards") {
+      const d = event.data;
+
+      html += `
+        <div class="mt-3 bg-gray-700/40 p-3 rounded-lg">
+          <p class="font-semibold text-green-400 mb-2 flex items-center gap-1">🔄 Troca de Cartas</p>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <p class="font-semibold text-gray-300">Player 1:</p>
+              <p class="text-gray-400 break-all text-sm">${d.addressPlayer1}</p>
+              <p class="text-gray-400">Carta: ${d.card1}</p>
+            </div>
+            <div>
+              <p class="font-semibold text-gray-300">Player 2:</p>
+              <p class="text-gray-400 break-all text-sm">${d.addressPlayer2}</p>
+              <p class="text-gray-400">Carta: ${d.card2}</p>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /* ------------------------------ MATCH REGISTER ------------------------------ */
+    if (event.type === "match_register") {
+      const d = event.data;
+
+      html += `
+        <div class="mt-3 bg-gray-700/40 p-3 rounded-lg">
+          <p class="font-semibold text-orange-400 mb-2 flex items-center gap-1">⚔️ Partida Registrada</p>
+
+          <p><strong class="text-gray-300">Player 1:</strong> 
+            <span class="text-gray-400">${d.player1}</span>
+          </p>
+
+          <p><strong class="text-gray-300">Player 2:</strong> 
+            <span class="text-gray-400">${d.player2}</span>
+          </p>
+
+          <p><strong class="text-gray-300">Vencedor:</strong> 
+            <span class="text-green-400 font-semibold">${d.win}</span>
+          </p>
+
+          <p><strong class="text-gray-300">Match ID:</strong> 
+            <span class="text-gray-400">${d.matchId}</span>
+          </p>
+        </div>
+      `;
+    }
+
+    card.innerHTML = html;
+    timelineContainer.appendChild(card);
+  });
+}
+
+function openModalHistoryBlockchain(data) {
+  const JSONdata = JSON.parse(data.body)
+    
+  renderHistory(JSONdata.data.timeline);
+  
+  const overlay = document.getElementById('modalHistoryBlockchainOverlay');
+  const modal = document.getElementById('modalHistoryBlockchain');
+  
+  overlay.classList.remove('hidden');
+  modal.classList.remove('hidden');
+  
+  modal.offsetHeight;
+  
+  setTimeout(() => {
+    overlay.classList.add('opacity-100');
+    modal.classList.remove('scale-95', 'opacity-0');
+    modal.classList.add('scale-100', 'opacity-100');
+  }, 10);
+}
+
+function closeModalHistoryBlockchain() {  
+  const overlay = document.getElementById('modalHistoryBlockchainOverlay');
+  const modal = document.getElementById('modalHistoryBlockchain');
+  
+  overlay.classList.remove('opacity-100');
+  modal.classList.remove('scale-100', 'opacity-100');
+  modal.classList.add('scale-95', 'opacity-0');
+  
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+    modal.classList.add('hidden');
+  }, 300);
+}
+
+document.getElementById('modalHistoryBlockchainOverlay').addEventListener('click', closeModalHistoryBlockchain);
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.getElementById('modalHistoryBlockchain').classList.contains('hidden')) {
+    closeModalHistoryBlockchain();
+  }
+});
+
 function surrender() {
   const match = getMatch();
   const user = getUser();
@@ -38,7 +211,7 @@ function updateGame(data) {
       showInfo("Você perdeu!🫠");
       cleanGame();
     }
-  } 
+  }
 }
 
 function fillGame(data) {

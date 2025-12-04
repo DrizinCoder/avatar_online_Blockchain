@@ -1,10 +1,11 @@
 package com.avatar.avatar_online.service;
 
-import com.avatar.avatar_online.DTOs.CardDTO;
-import com.avatar.avatar_online.DTOs.PackDTO;
-import com.avatar.avatar_online.DTOs.TradeCardDTO;
+import com.avatar.avatar_online.DTOs.*;
+import com.avatar.avatar_online.Truffle_Comunication.TruffleApiUser;
+import com.avatar.avatar_online.Utils.CardMapper;
 import com.avatar.avatar_online.models.Card;
 import com.avatar.avatar_online.models.Deck;
+import com.avatar.avatar_online.models.User;
 import com.avatar.avatar_online.raft.logs.OpenPackCommand;
 import com.avatar.avatar_online.raft.logs.TradeCardsCommand;
 import com.avatar.avatar_online.raft.service.CPCommitService;
@@ -26,14 +27,18 @@ public class CardService {
     private final ClusterLeadershipService leadershipService;
     private final RedirectService redirectService;
     private final CPCommitService cPCommitService;
+    private final UserService userService;
+    private final TruffleApiUser truffleApiUser;
 
     public CardService(CardRepository cardRepository, DeckService deckService, ClusterLeadershipService leadershipService,
-                       RedirectService redirectService, CPCommitService cPCommitService) {
+                       RedirectService redirectService, CPCommitService cPCommitService, UserService userService, TruffleApiUser truffleApiUser) {
         this.cardRepository = cardRepository;
         this.deckService = deckService;
         this.leadershipService = leadershipService;
         this.redirectService = redirectService;
         this.cPCommitService = cPCommitService;
+        this.userService = userService;
+        this.truffleApiUser = truffleApiUser;
     }
 
     public List<Card> getCardsInDeck(String userID) {
@@ -85,6 +90,11 @@ public class CardService {
                 .orElse(null);
     }
 
+    public Card findByCardId(UUID cardId) {
+        Optional<Card> cardOptional = cardRepository.findById(cardId);
+        return cardOptional.orElse(null);
+    }
+
     public List<CardDTO> findByUserIdWithoutDeck(UUID userId) {
         Optional<Deck> op = deckService.findByUserId(userId.toString());
         Set<UUID> deckCardIds = new HashSet<>();
@@ -119,22 +129,38 @@ public class CardService {
                     return redirectService.redirectToLeader("/api/cards/pack", packDTO, HttpMethod.POST);
                 }
 
-                List<Card> availableCards = cardRepository.findAllByUserIsNull();
+                Optional<User> userOptional =  userService.findById(UUID.fromString(packDTO.getPlayerId()));
 
-                if (availableCards.size() < 5) {
-                    throw new RuntimeException("LOGS: Pool de cartas insuficiente para abrir pacote.");
+                if(userOptional.isEmpty()){
+                    return ResponseEntity.badRequest().body("Erro em abrir pack");
                 }
 
-                List<Card> selectedCards = selectRandomCards(availableCards);
+                User user = userOptional.get();
 
-                List<UUID> selectedCardIds = selectedCards.stream()
-                        .map(Card::getId)
+                AddressDTO newAddressDTO = new AddressDTO(user.getAddress());
+
+                ResponseEntity<TruffleApiWrapper<PackResponseDto>> truffleResponse = truffleApiUser.openPack(newAddressDTO);
+
+                if (!truffleResponse.getStatusCode().is2xxSuccessful() || truffleResponse.getBody() == null) {
+                    return ResponseEntity.status(truffleResponse.getStatusCode())
+                            .body("Erro ao chamar Truffle: " + truffleResponse.getStatusCode());
+                }
+
+                PackResponseDto pack = truffleResponse.getBody().getData();
+
+                List<CardNFTRequestDto> nftCards = pack.getCartasDoPack();
+
+                if (nftCards == null || nftCards.isEmpty()) {
+                    return ResponseEntity.badRequest().body("Nenhuma carta retornada pelo Truffle");
+                }
+
+                List<Card> selectedCards = nftCards.stream()
+                        .map(CardMapper::fromNFT)
+                        .peek(c -> c.setUser(user))
                         .toList();
 
-                System.out.println("Cartas selecionadas para pacote: " + selectedCardIds);
-
                 OpenPackCommand command = new OpenPackCommand(UUID.randomUUID(), "OPEN_PACK",
-                        UUID.fromString(packDTO.getPlayerId()), selectedCardIds);
+                        UUID.fromString(packDTO.getPlayerId()), selectedCards);
 
                 boolean response = cPCommitService.tryCommitPackOpening(command);
 
@@ -157,6 +183,31 @@ public class CardService {
                 System.out.println("🚫 Este nó não é o líder. Redirecionando para o líder...");
                 return redirectService.redirectToLeader("/api/cards/trade", tradeCardDTO, HttpMethod.POST);
             }
+
+            Optional<User> userOptional1 =  userService.findById(UUID.fromString(tradeCardDTO.getPLayerId1()));
+
+            if(userOptional1.isEmpty()){
+                return ResponseEntity.badRequest().body("Erro em abrir pack");
+            }
+
+            User user1 = userOptional1.get();
+
+            Optional<User> userOptional2 =  userService.findById(UUID.fromString(tradeCardDTO.getPLayerId2()));
+
+            if(userOptional2.isEmpty()){
+                return ResponseEntity.badRequest().body("Erro em abrir pack");
+            }
+
+            User user2 = userOptional2.get();
+
+            Card card1 = findByCardId(UUID.fromString(tradeCardDTO.getCardId1()));
+
+            Card card2 = findByCardId(UUID.fromString(tradeCardDTO.getCardId2()));
+
+            TradeCardRequestDTO request = new TradeCardRequestDTO(user1.getAddress(), card1.getTokenId(),
+                    user2.getAddress(), card2.getTokenId());
+
+            truffleApiUser.tradeCards(request);
 
             System.out.println(tradeCardDTO.getCardId1());
             System.out.println(tradeCardDTO.getCardId2());

@@ -1,16 +1,19 @@
 package com.avatar.avatar_online.publisher_subscriber.handlers;
 
-import com.avatar.avatar_online.DTOs.CardDTO;
-import com.avatar.avatar_online.DTOs.PackDTO;
-import com.avatar.avatar_online.DTOs.TradeCardDTO;
+import com.avatar.avatar_online.DTOs.*;
+import com.avatar.avatar_online.Truffle_Comunication.TruffleApiUser;
 import com.avatar.avatar_online.models.Card;
+import com.avatar.avatar_online.models.User;
+import com.avatar.avatar_online.publisher_subscriber.handlers.DTO.GetCardsResponseDTO;
 import com.avatar.avatar_online.publisher_subscriber.handlers.DTO.ProposalDTO;
 import com.avatar.avatar_online.publisher_subscriber.model.*;
 import com.avatar.avatar_online.publisher_subscriber.service.Communication;
 import com.avatar.avatar_online.raft.service.RedirectService;
 import com.avatar.avatar_online.service.CardService;
+import com.avatar.avatar_online.service.UserService;
 import com.hazelcast.core.HazelcastInstance;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -27,18 +30,29 @@ public class HandleCard {
     private final Communication communication;
     private final HazelcastInstance hazelcast;
     private final RedirectService redirectService;
+    private final TruffleApiUser truffleApiUser;
+    private final UserService userService;
 
     @Autowired
-    public HandleCard(CardService cardService, OnlineUsers onlineUsers, Communication communication, HazelcastInstance hazelcast, RedirectService redirectService) {
+    public HandleCard(CardService cardService, OnlineUsers onlineUsers, Communication communication,
+                      @Qualifier("hazelcastInstance") HazelcastInstance hazelcast, RedirectService redirectService,
+                      TruffleApiUser truffleApiUser, UserService userService) {
         this.cardService = cardService;
         this.onlineUsers = onlineUsers;
         this.communication = communication;
         this.hazelcast = hazelcast;
         this.redirectService = redirectService;
+        this.truffleApiUser = truffleApiUser;
+        this.userService = userService;
     }
 
     public OperationResponseDTO handleGetCards(OperationRequestDTO operation){
         String userID = (String) operation.getPayload().get("userID");
+        Optional<User> userOptional = userService.findById(UUID.fromString(userID));
+
+        if(userOptional.isEmpty()){
+            return new OperationResponseDTO(operation.getOperationType(), OperationStatus.ERROR, "Interno erro: ao buscar usuário", null);
+        }
 
         try {
             List<CardDTO> cards = cardService.findByUserId(UUID.fromString(userID));
